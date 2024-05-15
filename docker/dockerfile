@@ -1,0 +1,21 @@
+FROM python:3.11
+
+RUN apt update && apt install -y build-essential && rm -rf /var/lib/apt/lists/*
+
+RUN pip install --no-cache-dir --upgrade pip
+
+RUN pip install --no-cache-dir git+https://github.com/dipy/dipy.git@master
+
+RUN pip install --no-cache-dir git+https://github.com/yeatmanlab/pyAFQ.git@master
+
+RUN pip install scikit-image[optional]==0.23.1
+
+WORKDIR /app
+
+ADD . /app
+
+RUN pip install --no-cache-dir -r ./src/requirements.txt
+
+ENTRYPOINT ["python", "./src/run.py"]
+
+CMD []
