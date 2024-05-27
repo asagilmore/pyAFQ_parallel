@@ -6,9 +6,7 @@ RUN pip install --no-cache-dir --upgrade pip
 
 RUN pip install --no-cache-dir git+https://github.com/dipy/dipy.git@master
 
-RUN pip install --no-cache-dir git+https://github.com/yeatmanlab/pyAFQ.git@master
-
-RUN pip install scikit-image[optional]==0.23.1
+RUN pip install --no-cache-dir git+https://github.com/asagilmore/pyAFQ.git@paraLocalTracking
 
 WORKDIR /app
 
