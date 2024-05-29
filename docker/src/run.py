@@ -13,6 +13,7 @@ import time
 import test_utils
 import os
 import csv
+import configparser
 
 cpu_count = multiprocessing.cpu_count()
 memory_size = psutil.virtual_memory().total
@@ -41,72 +42,17 @@ def save_data(filename):
     runTimeData.clear()
 
 
-# run csdm with the given engine and vox_per_chunk
-# appends the given time, engine, and vox_per_chunk to the data dataframe
-# returns the time it took to run
-def run_fit(model, engine, data, brain_mask_data, num_chunks, save=True):
-
-    global runTimeData, cpu_count, memory_size
-
-    monitor = test_utils.MemoryMonitor(1)
-
-    ## calc approx vox_per_chunk from num_chunks
-    non_zero_count = np.count_nonzero(brain_mask_data)
-    chunk_size = non_zero_count // num_chunks
-    vox_per_chunk = int(chunk_size)
-
-    print("running with, engine: ", engine, " vox_per_chunk: ", vox_per_chunk,
-          " num_chunks: ", num_chunks)
-
-    # start tracking memory useage
-    monitor_thread = threading.Thread(target=monitor.monitor_memory)
-    monitor_thread.start()
-
-    print(f'engine {engine}')
-    start = time.time()
-    fit = model.fit(data, mask=brain_mask_data)
-    end = time.time()
-
-    #Stop tracking memeory
-    monitor.stop_monitor = True
-    monitor_thread.join()
-
-    # grab memory stats
-    memory_usage, average_memory_usage = monitor.get_memory_usage()
-
-    runTime = end-start
-
-    model_name = model.__class__.__name__
-
-    if (save):
-        runTimeData.append({'engine': engine, 'vox_per_chunk': vox_per_chunk,
-                            'num_chunks': num_chunks, 'time': runTime,
-                            'cpu_count': cpu_count,
-                            'memory_size': memory_size,
-                            'num_vox': non_zero_count,
-                            'avg_mem': average_memory_usage,
-                            'mem_useage': memory_usage, 'model': model_name,
-                            'data_shape': data.shape})
-    else:
-        print("save turned off, runTime not saved")
-
-    print("time: ", runTime)
-
-    return runTime
-
-
-def generate_streamlines(tracking_params, save=True):
+def generate_streamlines(tracking_params, hcp_access, hcp_secret_access,
+                         save=True):
 
     global runTimeData, cpu_count, memory_size
 
     monitor = test_utils.MemoryMonitor(1)
 
     print("running generate_streamlines with params: ", tracking_params)
-
-    afd.organize_stanford_data(clear_previous_afq="track")
+    _, hcp_bids = afd.fetch_hcp([100206])
     myafq = GroupAFQ(
-        bids_path=op.join(afd.afq_home, 'stanford_hardi'),
-        preproc_pipeline='vistasoft',
+        bids_path=hcp_bids,
         tracking_params=tracking_params,
         viz_backend_spec='plotly_no_gif')
 
@@ -142,6 +88,34 @@ def generate_streamlines(tracking_params, save=True):
     return runTime
 
 
+def add_aws_profile(profile_name, aws_access_key_id, aws_secret_access_key):
+    credentials_file = os.path.expanduser('~/.aws/credentials')
+
+
+    # Check if the file exists
+    if not os.path.isfile(credentials_file):
+        os.makedirs(os.path.dirname(credentials_file), exist_ok=True)
+        open(credentials_file, 'a').close()
+
+    # Create a ConfigParser object
+    config = configparser.RawConfigParser()
+
+    # Read the existing AWS credentials file
+    config.read(credentials_file)
+
+    # Add the new profile
+    if not config.has_section(profile_name):
+        config.add_section(profile_name)
+    config.set(profile_name, 'aws_access_key_id', aws_access_key_id)
+    config.set(profile_name, 'aws_secret_access_key', aws_secret_access_key)
+
+    # Write the changes back to the file
+    with open(credentials_file, 'w') as f:
+        config.write(f)
+
+    print(f"Profile '{profile_name}' added to {credentials_file}")
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--num_seeds", type=int, default=1)
@@ -156,6 +130,8 @@ if __name__ == "__main__":
     parser.add_argument('--s3_access_key_id', type=str, default=None)
     parser.add_argument('--s3_secret_access_key', type=str, default=None)
     parser.add_argument('--exp_chunks', type=bool, default=False)
+    parser.add_argument('--hcp_access_key_id', type=str, required=True)
+    parser.add_argument('--hcp_secret_access_key', type=str, required=True)
 
     args = parser.parse_args()
 
@@ -163,6 +139,9 @@ if __name__ == "__main__":
 
     uuid = uuid.uuid4().hex
     unique_object_name = f"{base_filename}_{uuid}.csv"
+
+    add_aws_profile('hcp', args.hcp_access_key_id,
+                    args.hcp_secret_access_key)
 
     if args.num_cpus:
         cpu_count = args.num_cpus
@@ -184,7 +163,8 @@ if __name__ == "__main__":
                     tracking_params['num_chunks'] = 2**num_chunks
                 else:
                     tracking_params['num_chunks'] = num_chunks
-                generate_streamlines(tracking_params)
+                generate_streamlines(tracking_params, args.hcp_access_key_id,
+                                     args.hcp_secret_access_key)
                 save_data(args.filename)
                 test_utils.upload_to_s3(
                         args.filename, args.s3bucket,
@@ -193,7 +173,8 @@ if __name__ == "__main__":
                         aws_secret_access_key=args.s3_secret_access_key)
         else:
             tracking_params['num_chunks'] = 1
-            generate_streamlines(tracking_params)
+            generate_streamlines(tracking_params, args.hcp_access_key_id,
+                                 args.hcp_secret_access_key)
             save_data(args.filename)
             test_utils.upload_to_s3(
                     args.filename, args.s3bucket,
