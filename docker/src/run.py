@@ -14,6 +14,8 @@ import test_utils
 import os
 import csv
 import configparser
+import tempfile
+import shutil
 
 cpu_count = multiprocessing.cpu_count()
 memory_size = psutil.virtual_memory().total
@@ -50,11 +52,13 @@ def generate_streamlines(tracking_params, hcp_access, hcp_secret_access,
     monitor = test_utils.MemoryMonitor(1)
 
     print("running generate_streamlines with params: ", tracking_params)
+
     _, hcp_bids = afd.fetch_hcp([100206])
     myafq = GroupAFQ(
         bids_path=hcp_bids,
-        tracking_params=tracking_params,
-        viz_backend_spec='plotly_no_gif')
+        preproc_pipeline="dmriprep",
+        viz_backend_spec='plotly_no_gif',
+        tracking_params=tracking_params)
 
     myafq.export_up_to("streamlines")
 
@@ -64,6 +68,9 @@ def generate_streamlines(tracking_params, hcp_access, hcp_secret_access,
     start = time.time()
     myafq.export('streamlines')
     end = time.time()
+
+    # Delete all contents of the folder
+    shutil.rmtree(hcp_bids)
 
     #Stop tracking memeory
     monitor.stop_monitor = True
